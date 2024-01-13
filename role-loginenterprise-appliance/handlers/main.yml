@@ -1,0 +1,22 @@
+---
+# handlers file for le-appliance
+- name: restart sshd
+  service:
+    name: sshd
+    state: restarted
+
+- name: reload systemd-sysctl
+  shell: sysctl -p
+
+- name: Reboot Appliance
+  reboot:
+    msg: "Reboot initiated by Ansible for Login Enterprise Appliance installation"
+
+# handlers file for lvsi_ip_tables
+- name: save iptables v4 rules
+  shell: 'iptables-save > {{ ipv4_rules_path }}'
+  listen: persist iptables
+
+- name: save iptables v6 rules
+  shell: 'ip6tables-save > {{ ipv6_rules_path }}'
+  listen: persist iptables
