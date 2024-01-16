@@ -9,26 +9,33 @@
   shell: version=$(grep "Version__Number" < {{ composefilepath.stdout }} | cut -d':' -f2 | cut -d"'" -f2 | tail -1) && echo $version
   register: version
 # set hostname/fqdn
-- name: Set hostname
-  hostname:
-    name: "{{ hostname }}"
-  register: hostname
-- name: Set domainname
-  shell: domainname {{ domainname }}
-  register: domainname
+- name: Check for cloud-init
+  stat:
+    path: /etc/cloud/cloud.cfg
+  register: cloud_init
 - debug:
-    msg: "{{ hostname }}"
+    msg: "{{ cloud_init }}"
+
+- block:
+  - name: Set hostname
+    hostname:
+      name: "{{ hostname }}"
+    register: hostname
+  - name: Set domainname
+    shell: domainname {{ domainname }}
+    register: domainname
+  - debug:
+      msg: "{{ hostname }}"
+  #when: cloud_init.stat.exists == False
+
 # sysctl.conf
 - name: Add domainname to sysctl.conf
   lineinfile:
     path: /etc/sysctl.conf
     regexp: '#kernel.domainname'
     line: 'kernel.domainname = {{ ansible_domain }}'
+
 # etc/hosts
-- name: Check for cloud-init
-  stat:
-    path: /etc/cloud/cloud.cfg
-  register: cloud_init
 - name: Prevent Cloud Init from changing hostname
   block: 
   - name: Set 'preserve_hostname' to true
@@ -90,6 +97,7 @@
   copy:
     src: "/certificates/{{ ansible_fqdn }}.crt"
     dest: "/usr/local/share/ca-certificates"
+    remote_src: true
     mode: 0644
 # Update CA Certificates (update-ca-certificates)
 - name: Update CA Certificates
@@ -99,6 +107,7 @@
   copy:
     src: "/certificates/{{ ansible_fqdn }}.crt"
     dest: "/loginvsi/content"
+    remote_src: true
     mode: 0644
 # Update Appliance FQDN in guard/appsettings file
 - name: Update Appliance FQDN in appsettings file
