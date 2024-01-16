@@ -1,0 +1,5 @@
+---
+- name: Update Login Enterprise Appliance
+  debug:
+    msg: "Login Enterprise Appliance is up to date"
+  when: update_appliance is defined

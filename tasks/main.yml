@@ -1,0 +1,21 @@
+---
+# tasks file for le-appliance
+- name: Check if Login Enterprise is installed
+  include_tasks: check_existing.yml
+  when: run_mode == "install"
+
+- name: Check if system is supported as configured
+  include_tasks: check_system.yml
+  when: run_mode == "install"
+
+- name: Install Login Enterprise Appliance
+  include_tasks: install.yml
+  when: run_mode == "install"
+
+- name: Configure Login Enterprise Appliance
+  include_tasks: configure.yml
+  when: run_mode == "install"
+
+- name: Update Login Enterprise Appliance
+  include_tasks: update.yml
+  when: run_mode == "update"

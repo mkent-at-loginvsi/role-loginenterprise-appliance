@@ -1,0 +1,207 @@
+---
+- block: 
+  - include_tasks: check-size.yml
+    when: swap_file_state == 'present'
+
+  - include_tasks: enable.yml
+    when: swap_file_state == 'present'
+
+  - name: Manage swap file entry in fstab.
+    mount:
+      name: none
+      src: "{{ swap_file_path }}"
+      fstype: swap
+      opts: sw
+      state: "{{ swap_file_state }}"
+
+  - name: Ensure local admin group
+    group:
+      name: "{{ admin_username }}"
+      state: present
+
+  - name: Ensure local admin account
+    user:
+      name: "{{ admin_username }}"
+      state: present
+      password: "{{ admin_password | password_hash('sha512') }}"
+      shell: /bin/bash
+      update_password: on_create
+      createhome: yes
+      group: "{{ admin_username }}"
+
+  - name: Ensure local admin account is in sudoers
+    lineinfile:
+      dest: /etc/sudoers
+      line: "{{ admin_username }} ALL=(ALL) NOPASSWD:ALL"
+      validate: /usr/sbin/visudo -cf %s
+
+  - name: Ensure local loginenterprise group
+    group:
+      name: loginenterprise
+      state: present
+      gid: 1002
+
+  - name: Remove python2
+    package:
+      name: python2
+      state: absent
+
+  - name: Install default packages
+    package:
+      update_cache: yes
+      name: "{{ item }}"
+      state: present
+    with_items:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - unzip
+      - nano
+      - python3-pip
+      - apt-transport-https
+      - gnupg2 
+      - software-properties-common
+
+  - name: Create a symbolic link
+    file:
+      src: /usr/bin/python3
+      dest: /usr/bin/python
+      state: link   
+
+  - name: Install pdmenu
+    apt:
+      deb: http://archive.ubuntu.com/ubuntu/pool/universe/p/pdmenu/pdmenu_1.3.4build1_amd64.deb
+      state: present
+
+  - name: Enable fstrim.timer
+    systemd:
+      name: fstrim.timer
+      enabled: yes
+      state: started
+
+  - name: Allow ssh password authentication
+    lineinfile:
+      dest: /etc/ssh/sshd_config
+      regexp: '^PasswordAuthentication'
+      line: 'PasswordAuthentication yes'
+      state: present
+    notify: restart sshd
+
+  - name: Configure sysctl.conf
+    lineinfile:
+      path: /etc/sysctl.conf
+      line: "{{ item }}"
+      state: present
+    with_items:
+      - net.ipv4.conf.all.accept_redirects=0
+      - net.ipv4.conf.all.secure_redirects=0
+      - net.ipv4.conf.all.send_redirects=0
+      - net.ipv4.conf.default.accept_redirects=0
+      - net.ipv4.conf.default.secure_redirects=0
+      - net.ipv4.conf.default.send_redirects=0
+      - net.ipv6.conf.all.accept_redirects=0
+      - net.ipv6.conf.default.accept_redirects=0
+      - net.ipv6.conf.all.disable_ipv6 = 1
+      - net.ipv6.conf.default.disable_ipv6 = 1
+      - net.ipv6.conf.lo.disable_ipv6 = 1
+      - net.ipv4.ip_forward = 1
+    notify: reload systemd-sysctl
+
+  - name: Create temp install directory
+    file:
+      path: "{{ temp_dir }}"
+      state: directory
+      mode: 0755
+
+  - name: Unarchive Login Enterprise Appliance Software
+    unarchive:
+      src: "{{ le_appliance_archive }}"
+      dest: "{{ temp_dir }}"
+      #remote_src: yes
+      extra_opts: [--strip-components=1]
+      creates: "{{ temp_dir }}{{ le_appliance_dir }}"
+
+  - name: Create install directory
+    file:
+      path: "{{ le_appliance_dir }}"
+      state: directory
+      mode: 0755
+
+  - name: Copy Login Enterprise Appliance Software
+    command: cp -R {{ temp_dir }}/loginvsi /
+
+  - name: Copy Login Enterprise Appliance Software
+    command: cp -R {{ temp_dir }}/usr /
+
+  - name: Copy Login Enterprise Appliance Software Service - loginvsi.service
+    command: cp -f {{ temp_dir }}/etc/systemd/system/loginvsid.service /etc/systemd/system/
+
+  - name: Copy Login Enterprise Appliance Software Service - pi_guard.service
+    command: cp -f {{ temp_dir }}/etc/systemd/system/pi_guard.service /etc/systemd/system/
+
+  - name: Uninstall existing/previous Docker installations
+    package:
+      name:
+        - docker
+        - docker-engine
+        - docker.io 
+        - containerd 
+        - runc
+      state: absent
+    register: docker_uninstalled
+    when: docker_uninstalled is defined
+
+  - name: Install Docker
+    include_tasks: docker.yml
+
+  - name: Ensure Docker Service enabled and started
+    service:
+      name: docker
+      state: started
+      enabled: yes
+
+  - name: Install Docker Compose
+    get_url: 
+      url : https://github.com/docker/compose/releases/download/1.25.1-rc1/docker-compose-Linux-x86_64
+      dest: /usr/local/bin/docker-compose
+      mode: 'u+x,g+x'
+    register: docker_compose_installed
+
+  - name: Check if Docker Images are loaded
+    shell: docker images | grep -i "loginvsi"
+    register: docker_images_loaded
+    ignore_errors: true
+
+  - name: Load Docker images
+    shell: docker load -i "{{ temp_dir }}/images/images.tar.gz"
+    register: docker_images_loaded
+    when: not docker_images_loaded
+
+  - name: Configure iptables 
+    block:
+    - name: Drop ICMP Timestamp Requests
+      iptables:
+        chain: INPUT
+        protocol: icmp
+        icmp_type: timestamp-request
+        jump: DROP
+
+    - name: Drop ICMP Timestamp Reply
+      iptables:
+        chain: INPUT
+        protocol: icmp
+        icmp_type: timestamp-reply
+        jump: DROP
+
+    - name: Set Default Input Policy to Accept
+      iptables:
+        chain: INPUT
+        policy: ACCEPT
+
+    - name: Set Default Output Policy to Accept
+      iptables:
+        chain: OUTPUT
+        policy: ACCEPT
+  become: true
+  when: appliance_installed.changed == false

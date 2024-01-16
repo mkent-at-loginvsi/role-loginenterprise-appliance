@@ -1,0 +1,41 @@
+---
+- name: Check if Docker is installed
+  stat:
+    path: /usr/bin/docker
+  register: docker_installed
+
+- name: Install Docker
+  block:
+  - name: Add Docker's official GPG key
+    apt_key:
+      url: https://download.docker.com/linux/debian/gpg
+      state: present
+
+  - name: Add Docker's official apt repository
+    apt_repository:
+      repo: deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+      state: present
+
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+      #cache_valid_time: 86400 #One day
+
+  - name: Install Docker packages
+    apt:
+      name:
+        - docker-ce 
+        - docker-ce-cli 
+        - containerd.io 
+        - docker-buildx-plugin 
+        - docker-compose-plugin
+      state: latest
+      update_cache: yes
+
+  - name: Ensure Docker group exists
+    group:
+      name: docker
+      state: present
+    register: docker_group
+
+  #when: not docker_installed.stat.exists

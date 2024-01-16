@@ -1,0 +1,34 @@
+---
+# Check if the system is supported as configured for Login Enterprise installation
+- block:
+  - name: RAM Check
+    assert:
+      that:
+        - ansible_memtotal_mb >= {{ required_ram }}
+
+  - name: CPU Check
+    assert:
+      that:
+        - ansible_processor_cores >= {{ required_cpu }}
+
+  - name: Disk Space Check
+    # 30 GB
+    assert:
+      that:
+        - (ansible_mounts|selectattr("mount", "equalto", "/")|list)[0].size_available >= {{ required_space }}
+  
+  - name: SELINUX Check
+    assert:
+      that:
+        - ansible_selinux.status == "disabled"
+
+  - name: Get FIPS Status
+    shell: cat /proc/sys/crypto/fips_enabled
+    register: fips_enabled
+    
+  - name: FIPS Check
+    assert:
+      that:
+        - fips_enabled.stdout == "0"
+  become: true
+  when: safe_mode == "enabled"

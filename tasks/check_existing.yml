@@ -1,0 +1,13 @@
+---
+- name: Check if appliance is already installed
+  block: 
+    - name: Display Safe Mode
+      debug:
+        msg: "Safe mode is {{ safe_mode }}"
+      when: safe_mode is defined
+    - name: Check install directory
+      stat:
+        path: "{{ le_appliance_dir }}"
+      register: appliance_installed
+  become: true
+  when: safe_mode == "enabled"

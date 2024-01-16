@@ -1,0 +1,258 @@
+---
+# TODO: Permissions Check
+# TODO: Check for network space collisions
+# TODO: OUTPUT Asserts
+- name: Get composefile
+  shell: composefilepath=$(grep "COMPOSEFILE=" < /loginvsi/.env | cut -d "=" -f2) && echo $composefilepath
+  register: composefilepath
+- name: Get version
+  shell: version=$(grep "Version__Number" < {{ composefilepath.stdout }} | cut -d':' -f2 | cut -d"'" -f2 | tail -1) && echo $version
+  register: version
+# set hostname/fqdn
+- name: Set hostname
+  hostname:
+    name: "{{ hostname }}"
+  register: hostname
+- name: Set domainname
+  shell: domainname {{ domainname }}
+  register: domainname
+- debug:
+    msg: "{{ hostname }}"
+# sysctl.conf
+- name: Add domainname to sysctl.conf
+  lineinfile:
+    path: /etc/sysctl.conf
+    regexp: '#kernel.domainname'
+    line: 'kernel.domainname = {{ ansible_domain }}'
+# etc/hosts
+- name: Check for cloud-init
+  stat:
+    path: /etc/cloud/cloud.cfg
+  register: cloud_init
+- name: Prevent Cloud Init from changing hostname
+  block: 
+  - name: Set 'preserve_hostname' to true
+    lineinfile:
+      path: /etc/cloud/cloud.cfg
+      regexp: 'preserve_hostname: false'
+      line: 'preserve_hostname: true'
+  - name: Comment out 'set_hostname' function
+    lineinfile:
+      path: /etc/cloud/cloud.cfg
+      regexp: ' - set_hostname'
+      line: '# - set_hostname'
+  - name: Comment out 'update_hostname' function
+    lineinfile:
+      path: /etc/cloud/cloud.cfg
+      regexp: ' - update_hostname'
+      line: '# - update_hostname'
+  - name: Comment out 'update_etc_hosts' function
+    lineinfile:
+      path: /etc/cloud/cloud.cfg
+      regexp: ' - update_etc_hosts'
+      line: '# - update_etc_hosts'  
+  when: cloud_init.stat.exists == True
+- name: Generate /etc/hosts file
+  template:
+    src: hosts.j2
+    dest: /etc/hosts
+# first_run.chk
+- name: Create firstrun file
+  file:
+    path: "{{ le_appliance_dir }}/first_run.chk"
+    state: touch
+# Reset ssh keys
+# -- Intentionally Omitted --
+# Generate self-signed certificates
+- name: Create certificates directory
+  file:
+    path: "/certificates"
+    state: directory
+    mode: 0755
+- name: Generate Certificate Password
+  shell: openssl rand -hex 32
+  register: cert_password
+- debug:
+    msg: "{{ cert_password.stdout }}"
+- name: Generate Self-Signed Certificates
+  shell: /loginvsi/bin/shared/sslgen -c=NL -s=Noord-Holland -l=Amsterdam -o="Login VSI B.V." -u=Development -n={{ ansible_fqdn }} -e=info@loginvsi.com -w={{ cert_password.stdout }} -p=/certificates/
+  args:
+    creates: /certificates/{{ ansible_fqdn }}.crt
+  register: sslgen
+  when: cert_password is defined
+- name: Set permissions on certificates
+  file:
+    path: "/certificates"
+    state: directory
+    mode: 0755   
+# Copy certificates to /usr/local/share/ca-certificates
+- name: Copy certificates ca-certificates directory
+  copy:
+    src: "/certificates/{{ ansible_fqdn }}.crt"
+    dest: "/usr/local/share/ca-certificates"
+    mode: 0644
+# Update CA Certificates (update-ca-certificates)
+- name: Update CA Certificates
+  shell: update-ca-certificates
+# Copy CA Certificates to /loginvsi/content
+- name: Copy certificates content directory
+  copy:
+    src: "/certificates/{{ ansible_fqdn }}.crt"
+    dest: "/loginvsi/content"
+    mode: 0644
+# Update Appliance FQDN in guard/appsettings file
+- name: Update Appliance FQDN in appsettings file
+  lineinfile:
+    path: "{{ le_appliance_dir }}/settings/appsettings.all.json"
+    regexp: '"Authority": "https://localhost.loginvsi.com:3000/identityserver",'
+    line: '"Authority": "https://{{ ansible_fqdn }}:3000/identityserver",'
+- name: Update Appliance Guard URL in environment file
+  lineinfile:
+    path: "{{ le_appliance_dir }}/.env"
+    regexp: 'APPLIANCE_GUARD_URL=192.168.126.1:8080'
+    line: 'APPLIANCE_GUARD_URL=172.18.0.1:8080'
+# Update SSL_CERTIFICATE_KEY_PASSWORD in .env file
+# Update SSL_CERTIFICATE_KEY_PATH in .env file
+# Update SSL_CERTIFICATE_PATH in .env file
+# Update GATEWAY_PORT in .env file
+- name: Add Certificates to .env file
+  block:
+    - name: Add SSL_CERTIFICATE_KEY_PASSWORD to .env file
+      lineinfile:
+        path: "{{ le_appliance_dir }}/.env"
+        regexp: 'SSL_CERTIFICATE_KEY_PASSWORD='
+        line: 'SSL_CERTIFICATE_KEY_PASSWORD={{ cert_password.stdout }}'
+      #shell: echo SSL_CERTIFICATE_KEY_PASSWORD={{ cert_password.stdout }} >>/loginvsi/.env
+    - name: Add SSL_CERTIFICATE_KEY_PATH to .env file
+      lineinfile:
+        path: "{{ le_appliance_dir }}/.env"
+        regexp: 'SSL_CERTIFICATE_KEY_PATH='
+        line: 'SSL_CERTIFICATE_KEY_PATH=/certificates/{{ ansible_fqdn }}.key'
+      #shell: echo SSL_CERTIFICATE_KEY_PATH=/certificates/{{ ansible_fqdn }}.key >>/loginvsi/.env
+    - name: Add SSL_CERTIFICATE_PATH to .env file
+      lineinfile:
+        path: "{{ le_appliance_dir }}/.env"
+        regexp: 'SSL_CERTIFICATE_PATH='
+        line: 'SSL_CERTIFICATE_PATH=/certificates/{{ ansible_fqdn }}.crt'
+      #shell: echo SSL_CERTIFICATE_PATH=/certificates/{{ ansible_fqdn }}.crt >>/loginvsi/.env
+    - name: Add "GATEWAY_PORT to .env file
+      lineinfile:
+        path: "{{ le_appliance_dir }}/.env"
+        regexp: 'GATEWAY_PORT='
+        line: 'GATEWAY_PORT=443'
+      #shell: echo "GATEWAY_PORT=443" >>/loginvsi/.env
+# Check if Docker Swarm is initialized
+- name: Check if Docker Swarm is initialized
+  shell: docker info | grep -i "swarm"
+  register: swarm_initialized
+# Create docker_gwbridge network
+- name: Create Docker gwridge network with options
+  shell: 'docker network create --subnet 192.168.126.0/24 --gateway 192.168.126.1 -o com.docker.network.bridge.enable_icc=false -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.bridge.name=docker_gwbridge docker_gwbridge'
+  register: docker_gwbridge
+  ignore_errors: true
+  when: swarm_initialized.stdout.find('inactive') != -1
+# Initialize Docker Swarm
+- name: Initialize Docker Swarm
+  shell: docker swarm init
+  register: swarm_initialized
+  when: swarm_initialized.stdout.find('inactive') != -1
+# Remove Docker ingress network
+- name: Remove Docker ingress network
+  shell: echo "y" | docker network rm ingress -f
+  register: docker_ingress
+  ignore_errors: true
+# Create Docker ingress network
+- name: Wait for Docker ingress network to be removed
+  command: docker network ls -qf name=ingress
+  register: cmd_res
+  retries: 5
+  delay: 1
+  until: cmd_res.stdout.find("*") != -1
+  when: docker_ingress.rc == 0
+  ignore_errors: true
+- name: Create Docker ingress network
+  shell: docker network create --driver overlay --ingress --subnet=192.168.127.0/24 --gateway=192.168.127.1 ingress
+# Generate Encryption Key
+- name: Generate Encryption Key
+  shell: key=$(openssl rand -hex 32 | head -c 32) && echo $key | docker secret create ENCRYPTION_SECRET - &>/dev/null
+  register: encryption_key
+# Set Docker Secrets
+- name: Set Docker Secrets
+  block: 
+    - name: Set ADMIN_USERNAME
+      shell: echo {{ admin_username | b64encode }} | docker secret create ADMIN_USERNAME - &>/dev/null
+    - name: Set ADMIN_PASSWORD
+      shell: echo {{ admin_password | b64encode }} | tr -d '\n' | docker secret create ADMIN_PASSWORD - &>/dev/null
+    - name: Set USER_PASSWORD
+      shell: echo {{ admin_password | b64encode }} | tr -d '\n' | docker secret create USER_PASSWORD - &>/dev/null
+    - name: Set VSI_SSL_CERTIFICATE_KEY_PASSWORD
+      shell: echo {{ cert_password.stdout }} | docker secret create VSI_SSL_CERTIFICATE_KEY_PASSWORD - &>/dev/null
+# Set permissions and ownership on /usr/bin/loginvsid
+- name: Set ownership on /usr/bin/loginvsid
+  file:
+    path: /usr/bin/loginvsid
+    owner: root
+    group: root
+    mode: +x
+# Enable loginvsid service
+- name: Enable loginvsid service
+  systemd:
+    name: loginvsid
+    enabled: yes
+# Create second_run.chk file
+- name: Create second_run.chk file
+  file:
+    path: /{{ le_appliance_dir}}/second_run.chk
+    state: touch
+    mode: 0755
+# Prepareenvfile
+- name: Prepare env file
+  shell: /loginvsi/bin/start/prepareenvfile /loginvsi/.env
+  register: prepareenvfile
+# Setwelcomemessage
+- name: Set Welcome Message
+  shell: /loginvsi/bin/shared/setwelcomemessage /loginvsi/.env
+  register: setwelcomemessage
+# Build pdmenu
+- name: Build pdmenu
+  shell: |
+    echo "#!/bin/bash
+    sudo pdmenu -c -q /loginvsi/menu/pdmenurc" > /usr/bin/startmenu
+# Set startmenu permissions
+- name: Set pdmenu permissions
+  file:
+    path: /usr/bin/startmenu
+    mode: 0755
+# Add Admin to sudoers
+# -- Moved to install.yml --
+# Set shell for admin user
+- name: Set shell for admin user
+  user:
+    name: admin
+    shell: /usr/bin/startmenu
+# Add startmenu to /etc/shells
+- name: Add startmenu to /etc/shells
+  lineinfile:
+    path: /etc/shells
+    line: /usr/bin/startmenu
+    state: present
+# Clean up install files
+# - name: Clean up install files
+#   file: 
+#     path: "{{ temp_dir }}"
+#     state: absent
+# - name: Clean up profile
+#   shell: |
+#     rm -f /home/admin/.username
+#     rm -rf /home/admin/*
+#     rm -rf /home/admin/.bash_history
+#     rm -rf /root/.bash_history
+# Remove SFTP from sshd_config
+# Change owner on /certificates
+- name: Change owner on /certificates
+  file:
+    path: /certificates
+    owner: admin
+    group: admin
+    recurse: yes
+# Reboot Appliance
