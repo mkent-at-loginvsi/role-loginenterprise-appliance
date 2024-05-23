@@ -1,6 +1,6 @@
 ---
 roles:
   - name: role-loginenterprise-appliance
-    src: ssh://git@github.com/mkent-at-loginvsi/role-loginenterprise-appliance
+    src: https://git@github.com/mkent-at-loginvsi/role-loginenterprise-appliance
     version: main
     scm: git
