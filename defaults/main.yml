@@ -22,7 +22,7 @@ admin_username: "admin"
 hostname: "le-appliance"
 domainname: "example.com"
 temp_dir: "/install"
-le_appliance_archive: "/vagrant/appliance-5.5.2.tar.gz"
+le_appliance_archive: "/appliance.tar.gz"
 le_appliance_dir: "/loginvsi"
 
 # Installer settings (safe mode: enabled/disabled)
