@@ -12,6 +12,7 @@ Any pre-requisites that may not be covered by Ansible itself or the role should 
 
 ### OS Support for this role
 -Debian 10
+-Debian 12
 
 ### Installation
 This role is only available via github and is not published in ansible-galaxy's site, however the project includes a requirements.yml which allows you to use ansible-galaxy for installation locally:
