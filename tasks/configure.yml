@@ -27,6 +27,7 @@
   - debug:
       msg: "{{ hostname }}"
   #when: cloud_init.stat.exists == False
+  become = true
 
 # sysctl.conf
 - name: Add domainname to sysctl.conf
