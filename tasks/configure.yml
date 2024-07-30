@@ -111,16 +111,16 @@
     remote_src: true
     mode: 0644
 # Update Appliance FQDN in guard/appsettings file
-- name: Update Appliance FQDN in appsettings file
-  lineinfile:
-    path: "{{ le_appliance_dir }}/settings/appsettings.all.json"
-    regexp: '"Authority": "https://localhost.loginvsi.com:3000/identityserver",'
-    line: '"Authority": "https://{{ ansible_fqdn }}:3000/identityserver",'
-- name: Update Appliance Guard URL in environment file
-  lineinfile:
-    path: "{{ le_appliance_dir }}/.env"
-    regexp: 'APPLIANCE_GUARD_URL=192.168.126.1:8080'
-    line: 'APPLIANCE_GUARD_URL=172.18.0.1:8080'
+#- name: Update Appliance FQDN in appsettings file
+#  lineinfile:
+#    path: "{{ le_appliance_dir }}/bin/guard/appsettings.json"
+#    regexp: '"Authority": "https://localhost.loginvsi.com:3000/identityserver",'
+#    line: '"Authority": "https://{{ ansible_fqdn }}:3000/identityserver",'
+#- name: Update Appliance Guard URL in environment file
+#  lineinfile:
+#    path: "{{ le_appliance_dir }}/.env"
+#    regexp: 'APPLIANCE_GUARD_URL=192.168.126.1:8080'
+#    line: 'APPLIANCE_GUARD_URL=172.18.0.1:8080'
 # Update SSL_CERTIFICATE_KEY_PASSWORD in .env file
 # Update SSL_CERTIFICATE_KEY_PATH in .env file
 # Update SSL_CERTIFICATE_PATH in .env file
