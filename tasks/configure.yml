@@ -34,7 +34,7 @@
   lineinfile:
     path: /etc/sysctl.conf
     regexp: '#kernel.domainname'
-    line: 'kernel.domainname = {{ ansible_domain }}'
+    line: 'kernel.domainname = {{ domainname }}'
 
 # etc/hosts
 - name: Prevent Cloud Init from changing hostname
